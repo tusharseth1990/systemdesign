@@ -1,0 +1,95 @@
+Twitter:
+
+Requirements:
+
+- Should be able to post a tweet 
+- A tweet can have a message, image, video, etc.
+- User register/login
+- Users should be able to follow each other
+- Search People
+- NewsFeed from people following.
+- Favourites
+
+NFR:
+- High Availabiliity
+- Low Latency
+- Scalable and efficient.
+
+Extended requirements:
+-  Metrics And Analytics
+- Retweet functionality
+
+
+Estimates:
+
+1 Billion Users * 20% = DAU i.e. 200M users
+
+200M DAU
+
+5 tweets per day 
+
+200M x 5 tweets =  2X 5 X 10 ^ 2 X 10 ^ 5  = 10 ^ 8 = 1 Billion Tweets per day
+
+Request Per Sec 
+
+10 ^ 8 / 24X60X60 = 10^8/10^5 = 10^3
+
+Storage: 
+
+100 Bytes is the average size of a tweet message 
+10% images or video = 50 KB
+
+(1 billion tweets X 100 Bytes) + (0.1 Images X 5 X 10^5) =  100 GB + 5 TB  =  ~5 TB
+
+5 TB X 365 X 10 years = ~ 19 PB
+
+
+Data Modelling:
+//create and update timestamps
+- User(user_id, name, email, phone, dob) 
+- tweet(id, description, user_id, tweet_type)
+- follow(id, follow_by, follow_to)
+- feed(id, userid)
+- feedTweet(id, feed_id, Tweet_id)
+- favourite(id, tweetId, userId)
+
+API Design :
+
+Tweet:
+
+POST /tweet. , DELETE /tweet, UPDATE /Tweet 
+
+Request Body: userId, content, media URL: Return boolean
+
+Follow & UnFollow:
+
+/follow    RequestParameter: followerId, followeeID: boolean 
+
+ 
+/unfollow    RequestParameter: followerId, followeeID: boolean
+
+
+High-Level Diagram:
+
+UserService: User registration and log-in
+
+Tweet Service: Tweet CRUD
+
+UserFeed Service: Keep passing Tweets and generate the news feed for a user.
+
+Search Service:  For searching a user, and we can add functionality later.
+
+Storage Service: Store Media content for a tweet
+
+Notification Service: Receive push notifications for all updates, such as when people follow you, post a tweet, etc.
+
+Analytics Service: Analytics and metrics
+
+
+
+
+
+
+
+
+

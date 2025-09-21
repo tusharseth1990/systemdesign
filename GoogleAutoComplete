@@ -1,0 +1,78 @@
+Google Autocomplete feature 
+
+Autocomplete = fast prefix lookup (trie / FST / inverted-index) → generate candidates → rank top-K by a scoring function (popularity, recency, CTR, personalization, signals).
+
+Functional Requirements
+* As the user types in the search box, show top-k suggestions in real time.
+* Suggestions should be ranked by popularity, personalisation, recency, and relevance.
+* Must support spell corrections and synonyms.
+* Handle trillions of queries efficiently across the globe.
+* Low latency (<100ms) per request.
+
+
+Non-Functional Requirements
+* Scalability: Handle billions of queries/day.
+* High availability (99.99% uptime).
+* Low latency (<100ms end-to-end).
+* Consistency vs freshness: trade-off between fast results vs reflecting new trends.
+
+
+High-Level Architecture
+Flow when user types:
+1. Client: Sends partial query (e.g., "new y") to backend via API.
+2. API Gateway: Receives request → forwards to autocomplete service.
+3. Autocomplete Service:
+    * Uses prefix index/trie (for fast lookup).
+    * Fetches candidate suggestions.
+    * Passes through ranking model (ML-based scoring).
+    * Returns top-k results.
+4. Response: Sent back to client in <100ms.
+
+
+User
+  |
+  v
+Client (Browser / App)
+  |
+  v
+API Gateway -> Autocomplete Service
+                   |
+                   +--> Trie / Prefix Index (distributed, sharded)
+                   |
+                   +--> Ranking Engine (ML Model)
+                   |
+                   +--> Cache Layer (Redis / CDN)
+                   |
+                   +--> Streaming Updates (Kafka + Flink)
+  |
+  v
+Top-K Suggestions -> User
+
+
+
+Core Components
+a) Data Collection
+* Logs from Search Queries.
+* Weighted by frequency, recency, click-through rate (CTR).
+b) Storage / Index
+* Use Trie / Prefix Tree or FST (Finite State Transducer) for efficient prefix lookups.
+* Store along with popularity score.
+* For distributed scale → use sharded inverted index (like Lucene / Elasticsearch).
+c) Ranking Engine
+* Features: frequency, recency, user location, personalization, trending signals.
+* ML model (e.g., Gradient Boosted Trees, Transformers) ranks candidates.
+d) Caching
+* Heavy caching for popular prefixes (e.g., “new y” → "new york", "new year").
+* CDN / Edge caching for global scale.
+e) Freshness Layer
+* Real-time streaming pipeline (Kafka + Flink / Spark Streaming) to update trending queries.
+
+
+Scaling Considerations
+* Sharding by prefix ranges: e.g., all queries starting with “a-f” on shard 1.
+* Multi-region deployment for global availability.
+* Asynchronous updates for index (batch + stream).
+* Cold start problem: show fallback from global popularity if no personalisation.
+
+
+

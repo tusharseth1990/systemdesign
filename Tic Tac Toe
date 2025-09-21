@@ -1,0 +1,243 @@
+Tic Tac Toe:
+
+Functional Requirements
+* Two players (X and O) take turns placing marks.
+* 3x3 grid board.
+* Detect win, draw, or ongoing.
+* Optional: Play again, restart.
+
+Core OOP Classes
+enum Symbol {
+    X, O;
+}
+
+class Player {
+    private String name;
+    private Symbol symbol;
+}
+
+class Cell {
+    private int row;
+    private int col;
+    private Symbol symbol; // null = empty
+
+    public boolean isEmpty() {
+        return symbol == null;
+    }
+}
+
+Board Class
+public class Board {
+    private final int size = 3;
+    private final Cell[][] grid;
+
+    public Board() {
+        grid = new Cell[size][size];
+        for (int i = 0; i < size; i++)
+            for (int j = 0; j < size; j++)
+                grid[i][j] = new Cell(i, j);
+    }
+
+    public boolean markCell(int row, int col, Symbol symbol) {
+        if (!grid[row][col].isEmpty()) return false;
+        grid[row][col].setSymbol(symbol);
+        return true;
+    }
+
+    Cell[][] getGrid(){
+return grid;
+}
+}
+
+GameStatus Enum:
+public enum GameStatus {
+    IN_PROGRESS,
+    WIN,
+    DRAW
+}
+
+checkWin(row, col, symbol)
+Checks if the current player has filled:
+* All cells in the same row
+* All cells in the same column
+* Or one of the diagonals
+
+ isDraw()
+Loops through the board:
+* If any cell is empty, not a draw.
+* If all are filled and no winner → it's a draw.
+
+The Game class drives the game 
+1. by alternating turns between players using currentPlayerIndex, 
+3. marking symbols on the board, 
+4. and after every move, validating whether the game is won or drawn.  It follows SRP (Single Responsibility Principle) — game logic is separated from the board and UI, and symbol placement is validated before altering the game state.
+
+Game Class:  public class Game {
+    private final Board board;
+    private final Player[] players;
+    private int currentPlayerIndex;
+    private GameStatus status;
+
+    public Game(Player p1, Player p2) {
+        this.players = new Player[]{p1, p2};
+        this.board = new Board();
+        this.status = GameStatus.IN_PROGRESS;
+        this.currentPlayerIndex = 0;
+    }
+
+    public boolean playTurn(int row, int col) {
+        if (status != GameStatus.IN_PROGRESS) return false;
+
+        Player current = players[currentPlayerIndex];
+        boolean success = board.markCell(row, col, current.getSymbol());        
+if (!success) return false;
+
+        if (checkWin(row, col, current.getSymbol())) {
+            status = GameStatus.WIN;
+        } else if (isDraw()) {
+            status = GameStatus.DRAW;
+        } else {
+            currentPlayerIndex = (currentPlayerIndex + 1) % 2; 
+        }
+        return true;
+    }
+
+    private boolean isDraw() {
+        for (Cell[] row : board.getGrid())
+            for (Cell cell : row)
+                if (cell.isEmpty()) return false;
+        return true;
+    }
+
+    private boolean checkWin(int row, int col, Symbol symbol) {
+        Cell[][] grid = board.getGrid();
+        int size = grid.length;
+
+        boolean rowMatch = true, colMatch = true, diagMatch = true, antiDiagMatch = true;
+
+        for (int i = 0; i < size; i++) {
+            rowMatch &= (grid[row][i].getSymbol() == symbol);
+            colMatch &= (grid[i][col].getSymbol() == symbol);
+            diagMatch &= (grid[i][i].getSymbol() == symbol);
+            antiDiagMatch &= (grid[i][size - i - 1].getSymbol() == symbol);
+        }
+
+        return rowMatch || colMatch || diagMatch || antiDiagMatch;
+    }
+
+    public GameStatus getStatus() {
+        return status;
+    }
+
+    public Player getCurrentPlayer() {
+        return players[currentPlayerIndex];
+    }
+}
+
+Main (Driver Code)
+public class Main {
+    public static void main(String[] args) {
+        Player p1 = new Player("Tushar", Symbol.X);
+        Player p2 = new Player("Amit", Symbol.O);
+        Game game = new Game(p1, p2);
+
+        game.playTurn(0, 0); // Tushar (X)
+        game.playTurn(1, 0); // Amit (O)
+        game.playTurn(0, 1); // Tushar (X)
+        game.playTurn(1, 1); // Amit (O)
+        game.playTurn(0, 2); // Tushar (X) wins
+
+        System.out.println("Game Status: " + game.getStatus());
+    }
+}
+
+Do We Need API Design?
+🧩 If it's a system design + LLD combo round:
+You should mention APIs, especially if they ask you to extend it to multiplayer, frontend, or persistent storage.
+🔹 Basic APIs (if asked):
+API Endpoint	Description
+POST /game	Start a new game
+POST /game/{id}/move	Submit a move
+GET /game/{id}/state	Get current board + status
+GET /game/{id}/winner	Get winner or draw status
+You can explain:
+"Since it's a simple game, APIs are not necessary in the single-player CLI version, but in a multiplayer or distributed version (e.g., browser-based game), we can expose APIs to manage state on a backend."
+
+Factory Pattern – for Player creation (optional but adds modularity)
+
+public class PlayerFactory {
+    public static Player createPlayer(String name, Symbol symbol) {
+        return new Player(name, symbol);
+    }
+}
+
+// Usage
+Player p1 = PlayerFactory.createPlayer("Alice", Symbol.X);
+Player p2 = PlayerFactory.createPlayer("Bob", Symbol.O);
+
+Singleton Pattern – for GameManager (if game state is central)
+
+public class GameManager {
+    private static GameManager instance;
+    private Game currentGame;
+
+    private GameManager() {}
+
+    public static synchronized GameManager getInstance() {
+        if (instance == null) {
+            instance = new GameManager();
+        }
+        return instance;
+    }
+
+    public void startNewGame(int size, List<Player> players) {
+        currentGame = new Game(size, players, new DefaultWinningStrategy());
+    }
+
+    public Game getCurrentGame() {
+        return currentGame;
+    }
+}
+
+Command Pattern – (optional for Undo/Redo)
+
+public interface MoveCommand {
+    void execute();
+    void undo();
+}
+
+public class PlaceSymbolCommand implements MoveCommand {
+    private final Cell cell;
+    private final Symbol symbol;
+
+    public PlaceSymbolCommand(Cell cell, Symbol symbol) {
+        this.cell = cell;
+        this.symbol = symbol;
+    }
+
+    @Override
+    public void execute() {
+        cell.setSymbol(symbol);
+    }
+
+    @Override
+    public void undo() {
+        cell.setSymbol(null); // reset the cell
+    }
+}
+
+Additional Counter Questions Interviewer May Ask
+🔹 Design/Flexibility
+* "Can you support variable board sizes (NxN)?"
+    * Yes, by parameterising the board size in the constructor and using a general win check algorithm.
+* "How would you add AI player support?"
+    * Use Strategy Pattern or implement AIPlayer class with minimax or random move logic.
+* "Can we support multiplayer online games?"
+    * Yes, but we’d need persistent sessions, websockets for real-time, and user auth.
+
+
+Extensibility
+* "Can you add Undo/Redo support?"
+    * Use the Command pattern to record moves and maintain a stack for undo.
+
+“I kept the design modular and used simple OOP principles with potential to extend. If we want to scale this to multiplayer or a real-time app, I would expose REST APIs and possibly use observer/event-driven patterns. I also decided to store Symbol in Cell and not Player, to reduce tight coupling and increase serializability. The design supports extensibility for larger boards or alternate win strategies.”

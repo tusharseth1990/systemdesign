@@ -1,0 +1,266 @@
+SplitWise
+
+1. Functional Requirements
+
+- Register/login user
+- The user can create groups
+- can split a transaction individually or in groups.
+- can upload bills as an attachment for a transaction
+- Split ways for a transaction
+    - equal
+    - unequal
+    - exact
+    - percentage
+- The system tracks who owes whom how much?
+- A user can see their balance with others
+- Settle up / Simplify debts (optional, advanced) 
+
+core tables:
+
+User (id, name, phone, email, created_at)
+Groups (id, name, created_by, created_at)
+group_users (group_id, user_id, is_admin, joined_at //optional)
+Expense (id, description, amount, paid_by, split_type, group_id, created_at) // if group_id is null it is indiviual txn
+Expense_splits (id , expense_id, user_id, amount, percent, created_at)
+Balances (user_id, owed_to, balance) PK: (user_id, owed_to)
+
+Settlements (id, paid_by , paid_to, amount , expense_id, created_at)
+
+users
+ ├──< group_users >──┐
+ ↓                   ↓
+groups          expenses
+                   ├──< expense_splits >── users (owed)
+                   ↓
+              balances (user-to-user debts)
+
+
+Classes 
+
+User
+public class User {
+    private final String id;
+    private String name;
+    private String email;
+    private String phone;
+    
+    // Constructors, getters, setters
+}
+
+Group
+
+public class Group {
+    private String id;
+    private String name;
+    private List<User> members;
+    private List<Expense> expenses;
+}
+
+Expense
+
+public abstract class Expense {
+    protected String id;
+    protected double amount;
+    protected User paidBy;
+    protected List<Split> splits;
+    protected String description;
+    
+
+    public abstract boolean validate(); // validate splits (e.g., total % = 100)
+}
+
+SplitType
+
+public enum SplitType {
+    EQUAL,
+    EXACT,
+    PERCENT
+}
+
+
+EqualExpense, ExactExpense, PercentExpense:
+public class EqualExpense extends Expense {
+    public EqualExpense(double amount, User paidBy, List<Split> splits, String description) {
+        // divide equally
+    }
+
+    @Override
+    public boolean validate() {
+        // All splits should have equal amounts summing to total
+        return true;
+    }
+}
+
+public class ExactExpense extends Expense {
+    public ExactExpense(...) { ... }
+
+    @Override
+    public boolean validate() {
+        // Total of splits = amount
+        return ...
+    }
+}
+
+public class PercentExpense extends Expense {
+    public PercentExpense(...) { ... }
+
+    @Override
+    public boolean validate() {
+        // Total percentage = 100
+        return ...
+    }
+}
+
+Split
+
+public abstract class Split {
+    protected User user;
+    protected double amount;
+
+    public Split(User user) {
+        this.user = user;
+    }
+
+    public double getAmount() { return amount; }
+}
+
+public class EqualSplit extends Split { ... }
+
+public class ExactSplit extends Split {
+    public ExactSplit(User user, double amount) {
+        super(user);
+        this.amount = amount;
+    }
+}
+
+public class PercentSplit extends Split {
+    private double percent;
+
+    public PercentSplit(User user, double percent) {
+        super(user);
+        this.percent = percent;
+    }
+
+    @Override
+    public double getAmount() {
+        return (percent / 100.0) * amount;
+    }
+}
+
+
+ExpenseFactory
+
+public class ExpenseFactory {
+    public static Expense createExpense(SplitType type, double amount, User paidBy, List<Split> splits, String description) {
+        switch (type) {
+            case EQUAL: return new EqualExpense(amount, paidBy, splits, description);
+            case EXACT: return new ExactExpense(amount, paidBy, splits, description);
+            case PERCENT: return new PercentExpense(amount, paidBy, splits, description);
+            default: throw new IllegalArgumentException("Invalid type");
+        }
+    }
+}
+
+We are updating a double-entry balance sheet:
+* For every person who owes, we add the amount to their debt.
+* For the person who paid, we subtract that amount (as they are owed).
+
+ExpenseManager
+
+public class ExpenseManager {
+    private Map<String, User> users;
+    private Map<String, Map<String, Double>> balanceSheet;
+
+    public void addUser(User user) {
+        users.put(user.getId(), user);
+        balanceSheet.put(user.getId(), new HashMap<>());
+    }
+
+    public void addExpense(SplitType type, double amount, User paidBy, List<Split> splits, String description) {
+        Expense expense = ExpenseFactory.createExpense(...);
+        if (!expense.validate()) throw new RuntimeException("Invalid expense");
+
+        for (Split split: splits) {
+            String paidById = paidBy.getId();
+            String owedById = split.getUser().getId();
+            double splitAmount = split.getAmount();
+
+            if (paidById.equals(owedById)) continue;
+
+            balanceSheet.putIfAbsent(owedById, new HashMap<>());
+            balanceSheet.get(owedById).put(paidById,
+                balanceSheet.getOrDefault(owedById, new HashMap<>()).getOrDefault(paidById, 0.0) + splitAmount);
+
+            balanceSheet.putIfAbsent(paidById, new HashMap<>());
+            balanceSheet.get(paidById).put(owedById,
+                balanceSheet.getOrDefault(paidById, new HashMap<>()).getOrDefault(owedById, 0.0) - splitAmount);
+        }
+    }
+
+    public void showBalances() {
+        for (String user1 : balanceSheet.keySet()) {
+            for (Map.Entry<String, Double> entry : balanceSheet.get(user1).entrySet()) {
+                if (entry.getValue() > 0) {
+                    System.out.println(users.get(user1).getName() + " owes " +
+                        users.get(entry.getKey()).getName() + ": " + entry.getValue());
+                }
+            }
+        }
+    }
+}
+
+What is a balance sheet? 
+It’s a Map<String, Map<String, Double>>:
+
+i.e. Map<DebtorUserId, Map<CreditorUserId, AmountOwed>>
+
+For example:
+
+balanceSheet = {
+  "u2": { "u1": 500.0 },   // u2 (Rahul) owes u1 (Tushar) ₹500
+  "u1": { "u2": -500.0 }   // u1 sees that u2 owes him ₹500 (optional reverse entry)
+}
+
+A positive value means user1 owes entry.getKey().
+We skip negative values because they represent the inverse view (what the other user sees)
+
+Extendability Ideas
+* Support currencies
+* Add notifications
+* Add comments to expenses
+* Add settleUp method (greedy or graph-based)
+* Add group-wise balances
+* Add transaction history
+
+Pattern	Where Used	Why
+Strategy Pattern	Different Split subclasses	Behavior of "how to split" is encapsulated in separate strategies
+Factory Pattern	ExpenseFactory.createExpense()	Encapsulates object creation logic for Expense
+Composite Pattern (light)	Expense contains a list of Split	Treats multiple parts (splits) as a single expense
+Command Pattern (potential)	addExpense() acts like a command	Could be extended to support undo/redo operations
+Observer Pattern (extendable)	For notifications/updates to users	e.g., notify users when someone settles up
+
+Why did you store both entries in balanceSheet (i.e., A→B and B→A)?
+Follow-up: Isn’t one direction enough?
+Answer: We store both for convenience:
+* It allows O(1) access for both directions: A owes B and B is owed by A.
+* Helps if we want to support features like:
+    * "How much am I owed in total?"
+    * "Show my net balance with a friend."
+
+
+Can you scale this design to millions of users?
+Answer: For large-scale usage:
+* Don't store everything in memory.
+* Persist balances to a database (with indexing on user_id).
+* Use caching (like Redis) for fast reads.
+* Implement eventual consistency if needed for performance.
+
+
+Is this balance update thread-safe?
+Answer: No. The current implementation is not thread-safe.
+If multiple threads add expenses concurrently, race conditions could corrupt the balanceSheet.
+To fix this:
+* Use ConcurrentHashMap and synchronized blocks, or
+* Use an external database with transactions
+
+

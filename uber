@@ -1,0 +1,54 @@
+Uber:
+
+
+Clients (iOS/Android/Web)
+→ API Gateway / Edge (TLS, rate limiting, auth)
+→ Auth Service (OAuth / JWT)
+→ Trip Service (orchestrates trip lifecycle) ←→ Payments Service
+→ Matching Service ←→ Driver Service / Driver State Store
+→ Location Ingest (real-time stream)
+→ Geo Index (H3 + Redis/Geo)
+→ Routing & ETA Service (map provider)
+→ Pricing Service (surge, fare)
+→ Notification Service (push/SMS)
+→ Event Bus (Kafka)
+→ Data Stores: RDBMS for metadata, NoSQL for fast lookups, Redis for caching, Time-series DB for telemetry, Data Warehouse for analytics
+
+
+
+																     —> Matching Service —> Driver service 
+																			|				|
+clients( iOS/Android )—> LB —> API Gateway / Edge (TLS, rate limiting, auth) —> Trip Service    —> Routing & ETA Service  —> Kafka (Event bus)
+																		|
+																      —> Location Ingestion —> Routing & ETA Service —> Notification Service 
+																			|							| 					| 
+																      —>  Geo Index (H3,Index)			Pricing Service		Data Store
+
+
+Location Ingest / Stream (gRPC/Websocket/ MQTT : Message Queue Telemetry Transport, SSE (Server-Sent Events) + Batched Updates)
+Accept frequent driver location pings (1–10/sec depending on state).
+Use a lightweight protocol (gRPC or WebSocket) and push to Kafka / in-memory buffer.
+
+
+gRPC: it is scalable, but one hop, which adds latency
+
+
+Hybrid approach:
+* Use gRPC/WebSockets (or custom persistent protocol) for live location streaming.
+* Batch fallback via HTTPS when the app is backgrounded or the connection is unstable.
+* Optimise frequency dynamically:
+    * idle driver: update every 15–30s,
+    * active trip: every 2–5s.
+
+
+Geo Index: Proximity Area
+
+Feature	H3	S2
+Shape	Hexagons (mostly)	Squares (from cube projection)
+Created by	Uber	Google
+Hierarchy	Multiple resolutions (≈ 0 to 15, from continents → meters)	Quad-tree levels
+Best for	Proximity, clustering, demand/supply heatmaps	Database indexing, point-in-polygon, bounding-box queries
+Libraries	Open-source (C, Go, Python, JS, Java)	Open-source (C++, Go, Java, Python)
+Used in	Uber, Lyft, visualization tools	Google Maps, MongoDB Atlas, Cloud Spanner
+
+

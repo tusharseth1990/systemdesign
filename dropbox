@@ -1,0 +1,59 @@
+DropBox:
+
+
+1. Functional Requirements
+* Upload, download, delete files & folders.
+* Sync files across devices (desktop, mobile, web).
+* Version control (restore previous versions).
+* File sharing (with links or collaborators).
+* Conflict resolution (when multiple users update the same file).
+* Offline access with sync-on-connect.
+
+2. Non-Functional Requirements (NFRs)
+* Reliability & Durability → No data loss, replication.
+* Availability → Highly available system for uploads/downloads.
+* Scalability → Handle billions of files & petabytes of data.
+* Low Latency → Fast metadata lookups (ms), file sync (near real-time).
+* Consistency → Eventual consistency across devices.
+
+3. API Design (Sample)
+
+POST   /files/upload      # Upload file
+GET    /files/download    # Download file
+DELETE /files/{id}        # Delete file
+GET    /files/metadata    # Get metadata (size, version, lastModified)
+POST   /files/share       # Share file link
+GET    /sync/changes      # Poll/stream changes for sync
+
+Data Model
+* Metadata DB (SQL/NoSQL)
+    * FileID, FileName, Path, UserID, Version, ChunkIDs, Timestamps, Permissions
+* Blob Storage (S3/HDFS)
+    * Large files split into chunks (e.g., 4MB each).
+    * Deduplication & compression.
+
+
+ 
+ 
+client   -> LB —> API Gateway   --> Metadata Service    —>  MetaData  Service      —> Metadata DB (MySQL/ Cassandra)
+			    	|		
+	  			    CDN		
+						—> Sync Service    —> Message Broker (Kafka / Pub-Sub)  
+
+						—> chunk Service (chunking)      —> Blob Storage (S3 / GCS) 
+
+						——> Search Service       ——> Elastic Search
+
+						—-> User Service     —>  	User DB (SQL)
+
+
+
+
+Chunker: Chunker splits the big files in to chunks of 4 MB. This also reconstructs the original file from chunks.
+Watcher: Watcher monitors for file changes in workspace like update, create, delete of files and folders. Watcher notifies Indexer about the changes.
+Indexer: Indexer listens for the events from watcher and updates the Client Metadata Database with information about the chunks of the modified file. It also notifies Synchronizer after committing changes to Client Metadata Database.
+
+
+
+
+								

@@ -1,0 +1,233 @@
+StackOverflow:
+
+Functional Requirements
+
+User can:
+* Register/Login
+* Ask questions
+* Answer questions
+* Comment on questions and answers
+* Upvote/Downvote questions and answers
+* Search and filter questions
+* View question details
+* Earn reputation through community activity
+* Edit own posts
+
+Admin/Moderators can:
+* Close/delete questions/answers
+* Ban users
+
+
+Core Entities & Classes:
+
+User:
+class User {
+    private String id;
+    private String name;
+    private String email;
+    private int reputation;
+    private List<Badge> badges;
+    private AccountStatus status;
+}
+
+
+Question
+class Question {
+    private String id;
+    private String title;
+    private String description;
+    private User askedBy;
+    private List<Tag> tags;
+    private List<Answer> answers;
+    private List<Comment> comments;
+    private int upvotes;
+    private int downvotes;
+    private QuestionStatus status;
+    private Date createdAt;
+}
+ Answer:
+
+class Answer {
+    private String id;
+    private String content;
+    private User answeredBy;
+    private List<Comment> comments;
+    private int upvotes;
+    private int downvotes;
+    private Date createdAt;
+}
+
+Comment
+class Comment {
+    private String id;
+    private String content;
+    private User commentedBy;
+    private Date createdAt;
+}
+
+Tag:
+class Tag {
+    private String id;
+    private String name;
+    private String description;
+}
+
+Badge:
+
+class Badge {
+    private String name;
+    private String description;
+}
+
+VoteType Enum:
+
+enum VoteType {
+    UPVOTE, DOWNVOTE
+}
+
+QuestionStatus Enum:
+
+enum QuestionStatus {
+    OPEN, CLOSED, DELETED, DUPLICATE
+}
+
+AccountStatus Enum:
+
+enum AccountStatus {
+    ACTIVE, BLOCKED, BANNED
+}
+
+Services
+
+SearchService
+
+class SearchService {
+    public List<Question> searchByTag(String tag);
+    public List<Question> searchByKeyword(String keyword);
+}
+
+VoteService
+
+class VoteService {
+    public void voteQuestion(String questionId, String userId, VoteType voteType);
+    public void voteAnswer(String answerId, String userId, VoteType voteType);
+}
+
+ReputationService
+
+class ReputationService {
+    public void updateReputation(User user, VoteType voteType, boolean isAnswer);
+}
+
+QuestionService
+
+class QuestionService {
+    public Question askQuestion(String title, String desc, List<Tag> tags, User user);
+    public void closeQuestion(String questionId, User moderator);
+}
+
+Database Schema (Simplified)
+Table	Key Columns
+users	id, name, email, reputation
+questions	id, title, desc, user_id, status
+answers	id, content, question_id, user_id
+comments	id, content, post_type, post_id, user_id
+votes	id, post_type, post_id, user_id, type
+tags	id, name, desc
+question_tags	question_id, tag_id
+
+API Endpoints (Examples)
+API	Description
+POST /question/{auto-generated-ID}	Ask a new question
+GET /question/{id}	View question with answers
+POST /question/{id}/answer	Add an answer
+POST /vote	Vote on post
+GET /search?q=java	Search questions
+
+Design Patterns Used
+Pattern	Purpose
+Factory	For vote/reputation/badge calculation logic
+Observer (optional)	Notify user of changes or badges
+Strategy (optional)	Reputation strategy based on action type
+
+🔁 1. How would you handle concurrent voting?
+🔸 Problem:
+If multiple users upvote/downvote at the same time, we may face race conditions, leading to incorrect vote counts or reputation calculations.
+✅ Answer:
+* Use optimistic locking with versioning in DB (e.g., version field in the question/answer row).
+* Alternatively, use atomic operations with counters in Redis or similar in-memory stores.
+* Ensure vote logic is idempotent — a user should not be able to vote more than once.
+"We can store votes in a separate table and use unique constraints (userId + postId) to prevent duplicates. Final vote count can be derived via aggregate queries or cached."
+
+🔁 2. How would you prevent duplicate questions?
+✅ Answer:
+* Use text similarity search during question entry using tools like Elasticsearch, TF-IDF, or cosine similarity.
+* Prompt user: “Your question looks similar to…” with a list of potential matches.
+* Use NLP to match questions based on semantic meaning, not just keywords.
+"We can integrate Elasticsearch with synonym matching and maintain a deduplication service during question submission."
+
+🔁 3. How would you scale search?
+✅ Answer:
+* Offload search to Elasticsearch or Apache Solr.
+* Index fields like title, description, tags, and comments.
+* Store denormalized documents for faster access.
+* Use autocomplete and filters like tag:java sort:active.
+"Relational DB is poor for full-text search at scale. I’d use Elasticsearch with relevant analyzers for stemming, stopwords, and autocomplete."
+
+🔁 4. How would you show trending or active questions?
+✅ Answer:
+* Trending = high activity in short time → define score: ini CopyEdit   score = upvotes * 2 + answers * 1.5 + views * 0.5 - downvotes
+*   
+* Precompute and store trending scores in Redis.
+* Update scores using event-driven architecture (e.g., Kafka events: new answer, upvote, etc.)
+"We can update scores in near real-time and cache trending questions for each tag to avoid recomputation."
+
+🔁 5. How would you implement badges and reputation tracking?
+✅ Answer:
+* Use Observer/Event-driven pattern to track user actions:
+    * e.g., AnswerAddedEvent, QuestionUpvotedEvent
+* A separate ReputationService consumes events and applies rules:
+    * +10 for upvote on answer
+    * +5 for upvote on question
+    * -2 for downvote
+* Similarly, use badge rules:
+    * e.g., “Answered 10 questions”, “100 upvotes” = Earn Badge
+"This decouples logic from main flow and keeps it scalable for future rule changes."
+
+🔁 6. How would you handle spam or abuse?
+✅ Answer:
+* Add rate limiting for new users (X posts per hour).
+* Enable community flagging — hide posts with > X flags.
+* Use ML-based content filters to detect abusive content.
+* Moderators can view flagged posts in a moderation queue.
+"We can integrate a profanity checker or abuse detector via NLP, and escalate suspicious posts to mods."
+
+🔁 7. What DB to use and how to model answers/comments efficiently?
+✅ Answer:
+* Use RDBMS for core entities (users, questions, answers, votes).
+* Use NoSQL or Document DBs (like MongoDB) for comments if deeply nested.
+* Consider materialized views or denormalized tables for faster access.
+"Questions and answers have a natural parent-child relationship; comments can be in a separate table linked by postId."
+
+🔁 8. What APIs would you expose? (any RESTful design?)
+✅ Answer:
+Yes. RESTful APIs like:
+* POST /questions – ask a question
+* GET /questions/{id} – fetch question and answers
+* POST /questions/{id}/answers – answer a question
+* POST /vote – upvote/downvote
+* GET /search?q=... – full-text search
+* POST /comments – add a comment
+"Each resource (question, answer, user) should be represented with REST principles and versioned (e.g., /v1/questions)."
+
+🔁 9. Any caching used?
+✅ Answer:
+Yes, for high-read entities:
+* Cache trending questions, top-voted answers using Redis.
+* Use lazy caching with TTL or write-through caching on upvote/downvote actions.
+
+🔁 10. How would you support pagination and sorting?
+✅ Answer:
+* Use limit and offset in SQL, or cursor-based pagination for large data sets.
+* Sort using fields like createdAt, score, views.
+

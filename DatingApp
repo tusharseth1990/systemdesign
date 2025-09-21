@@ -1,0 +1,82 @@
+Matching APP:
+
+FR:
+Registration
+User Profile Details 
+Free tier/
+Premium tier: Subscription features and swipe allowed: different models
+Matching: Based on Algo
+Payment 
+Chat 
+Search 
+
+
+
+
+
+Mobile/ clients     —> API Gateway   —>   Auth Service   (18+ verification + some level of compliance  , add Identification ID, email verifications)
+
+								       Profile Service   (Detailing About Me )
+
+								       Subscription Service
+
+									Match Svc    (Geo Based / Location / Interest /opp. gender / - nearby using ML algo)
+ 										|
+								 	Feed Service  
+
+									Search Service 
+
+									Messaging Service (Web Socket )
+
+									Payment Svc 	
+
+
+
+
+SQL:  profiles, likes, payments
+
+Object Store: S3 or GCS: for images and videos 
+
+Search: Elastic Search based on different search criteria’s indexes will be created.
+
+Messaging: Web Socket 
+
+Redis:  Chat 1:1, Super Likes, Card Service batching depends on free/
+
+Communication between: Message Queue
+
+CDN
+
+Load Balancers/ More Servers/Geo-Based 
+
+SQL: tune Sharding on user ID & geo-based
+
+
+
+
+Like -> Match Sequence:
+
+Event Flows (via Message Queue)
+Like → Match Flow
+1. Client → API GW → Match Svc (REST)
+2. Match Svc writes likes table
+3. If reciprocal, like found → emit match_created event to Kafka
+4. Consumers:
+    * Messaging Svc: create chat channel
+    * Push Svc: send notifications to both users
+    * Analytics Svc: log engagement
+
+
+Client → API GW: POST /like {targetId}
+API GW → Match Svc: REST request
+Match Svc → DB: UPSERT like
+Match Svc → DB: check reciprocal
+[if match]
+Match Svc → Kafka: emit match_created
+Kafka → Messaging Svc: create chat channel
+Kafka → Push Svc: send push to both
+Kafka → Analytics: log event
+
+ 
+How do you ensure message ordering across services?
+A: Messages are partitioned by match_id in Kafka. Ordering is guaranteed within a partition. Each match conversation maps to one partition to keep per-match ordering intact.

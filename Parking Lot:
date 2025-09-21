@@ -1,0 +1,444 @@
+Parking Lot:
+
+Understand Requirements (Functional & Non-functional)
+
+📌 Functional Requirements:
+* A parking lot can have multiple levels.
+* Each level has various parking spots.
+* There are different types of spots: Compact, Large, Handicapped, and Motorcycle.
+* Vehicles can be of different types: Car, Truck, Bike, etc.
+* Should support parking a vehicle and removing it.
+* The system should find the nearest available spot.
+* Generate a parking ticket on entry and calculate the bill on exit.
+
+📌 Non-functional Requirements:
+* Thread-safe (for concurrent vehicle entries/exits).
+* Scalable for a large number of vehicles.
+* Maintainability, extensibility.
+
+Identify Core Entities (Classes)
+
+abstract class Vehicle {
+    private String licensePlate;
+    private VehicleType type;
+}
+
+enum VehicleType {
+    CAR, BIKE, TRUCK
+}
+
+abstract class ParkingSpot {
+    private String spotId;
+    private boolean isAvailable;
+    private VehicleType spotType;
+    private Vehicle currentVehicle;
+}
+
+class CompactSpot extends ParkingSpot {}
+class LargeSpot extends ParkingSpot {}
+class BikeSpot extends ParkingSpot {}
+
+class ParkingFloor {
+    private String floorId;
+    private List<ParkingSpot> spots;
+}
+
+class ParkingLot {
+    private List<ParkingFloor> floors;
+    private Map<Vehicle, ParkingTicket> activeTickets;
+
+    public ParkingTicket parkVehicle(Vehicle vehicle);
+    public boolean unparkVehicle(ParkingTicket ticket);
+}
+
+class ParkingTicket {
+    private String ticketId;
+    private LocalDateTime entryTime;
+    private LocalDateTime exitTime;
+    private ParkingSpot spot;
+    private Vehicle vehicle;
+}
+
+class ParkingRate {
+    public double calculateCharges(Duration duration, VehicleType type);
+}
+
+￼
+Parking Flow
+🚗 Vehicle Entry
+1. The user provides the vehicle at the gate.
+2. The system identifies the first suitable spot available.
+3. Assigns a spot and generates a ticket.
+4. Returns the ticket to the user.
+🅿️ Vehicle Exit
+1. The user gives the ticket at the exit.
+2. System records exit time.
+3. Frees up the spot.
+4. Calculates the bill and shows it to the user.
+
+Additional Features to Mention 
+* Admin features: Add/Remove spots, floors.
+* Display board to show availability.
+* Integration with payment gateways.
+* EV charging spot reservation.
+* Cameras and license plate scanning.
+* Reserved spots (VIP, Handicapped).
+
+Database Table Design (Schema):
+
+ Vehicle Table (vehicle_id :pk -uuid, plate_number, vehicle_type)
+
+Field	Type	Description
+vehicle_id	UUID / PK	Unique ID
+plate_number	VARCHAR	Vehicle's plate
+vehicle_type	ENUM	CAR, BIKE, TRUCK, etc.
+
+ParkingSpot Table
+Field	Type	Description
+spot_id	UUID / PK	Unique ID
+spot_type	ENUM	COMPACT, LARGE, BIKE
+is_available	BOOLEAN	Spot availability
+floor_id	FK	References parking_floor.floor_id
+vehicle_id	FK / NULL	References vehicle.vehicle_id (if parked)
+
+ParkingFloor Table
+Field	Type	Description
+floor_id	UUID / PK	Unique floor ID
+floor_name	VARCHAR	"Ground", "Level 1", etc.
+lot_id	FK	References parking_lot.lot_id
+
+ParkingLot Table
+Field	Type	Description
+lot_id	UUID / PK	Unique lot ID
+lot_name	VARCHAR	Lot name (optional)
+
+ParkingTicket Table
+Field	Type	Description
+ticket_id	UUID / PK	Unique ticket ID
+vehicle_id	FK	References vehicle.vehicle_id
+spot_id	FK	References parking_spot.spot_id
+entry_time	DATETIME	Entry time
+exit_time	DATETIME	Exit time (nullable until vehicle exits)
+total_charge	DECIMAL	Final cost (computed at exit)
+
+ParkingRate Table (Optional if dynamic rates)
+Field	Type	Description
+rate_id	UUID / PK	Unique rate ID
+vehicle_type	ENUM	Vehicle type it applies to
+per_hour_rate	DECIMAL	₹/hour charge
+weekend_rate	DECIMAL	Optional: Weekend multiplier or value
+
+Relationships Summary:
+* A Vehicle can have many tickets, but only one active parking spot.
+* A ParkingSpot is on a ParkingFloor, and can only have one vehicle at a time.
+* A ParkingLot has many floors, and each floor has many spots.
+* ParkingRate uses Strategy Pattern, not necessarily stored in DB unless dynamic.
+
+Optional Enhancements
+Table	Reason
+User	If you want registered customers
+Payment	Payment tracking for each ticket
+Reservation	For pre-booked parking
+Alert/Notification	Notify users about expiry, reminders
+API Design:
+Vehicle Entry (Park a Vehicle)
+
+POST /api/entry
+Description: Assign a parking spot and generate a parking ticket.
+
+Request Body:
+{
+  "vehicleType": "CAR",
+  "licensePlate": "UP78XX1234"
+}
+
+{
+  "ticketId": "TICK123456",
+  "spotId": "SPOT45",
+  "floorId": "F1",
+  "entryTime": "2025-08-05T08:30:00"
+}
+
+Vehicle Exit (Unpark & Generate Bill)
+
+POST /api/exit
+Description: Calculate the bill and release the parking spot.
+Request Body:
+
+{
+  "ticketId": "TICK123456"
+}
+Response:
+
+{
+  "ticketId": "TICK123456",
+  "exitTime": "2025-08-05T10:45:00",
+  "durationMinutes": 135,
+  "totalCharge": 50.0
+}
+
+
+Get Ticket Details (Optional)
+GET /api/tickets/{ticketId}
+
+Description: Retrieve ticket info (status, entry/exit, charges).
+
+Response:
+{
+  "ticketId": "TICK123456",
+  "vehicle": {
+    "licensePlate": "UP78XX1234",
+    "vehicleType": "CAR"
+  },
+  "entryTime": "2025-08-05T08:30:00",
+  "exitTime": "2025-08-05T10:45:00",
+  "spotId": "SPOT45",
+  "floorId": "F1",
+  "totalCharge": 50.0
+}
+
+Get Availability Status:
+
+GET /api/availability
+Description: Get real-time parking spot availability.
+
+Response:
+{
+  "floors": [
+    {
+      "floorId": "F1",
+      "availableSpots": {
+        "COMPACT": 12,
+        "LARGE": 5,
+        "BIKE": 8
+      }
+    }
+  ]
+}
+
+Admin APIs (For Configuration)
+
+Add Floor
+POST /api/admin/floors
+
+{
+  "floorId": "F2"
+}
+
+Add Parking Spot:
+
+POST /api/admin/spots
+
+{
+  "floorId": "F2",
+  "spotType": "LARGE",
+  "spotId": "SPOT201"
+}
+
+Mark Spot as Out of Service (Optional)
+PATCH /api/admin/spots/{spotId}/deactivate
+
+{
+  "isAvailable": false
+}
+
+Payment (Optional)
+POST /api/payment
+{
+  "ticketId": "TICK123456",
+  "paymentMethod": "CREDIT_CARD"
+}
+
+Optional Advanced APIs
+API	Description
+GET /api/history?licensePlate=XYZ	Get parking history for a vehicle
+GET /api/stats/occupancy	Dashboard for lot utilization
+POST /api/reserve	Reserve spot in advance
+GET /api/rates	View parking rates for vehicle types
+
+Backend Components (Microservice-oriented - Optional)
+* EntryService – Handles vehicle entries
+* ExitService – Handles exits and billing
+* TicketService – Ticket generation and lookup
+* SpotService – Manages parking spot states
+* AdminService – For floor/spot configuration
+* BillingService – Charges and pricing logic
+* NotificationService – Alerts for overstay/reservation
+
+Pattern	Where Used	Why
+Singleton	ParkingLot	There should be only one instance of the ParkingLot managing the entire system.
+Factory	Vehicle, ParkingSpot creation	Encapsulate object creation and avoid tight coupling.
+Strategy	BillingService	Allow flexible billing calculations
+Observer	DisplayBoard, Mobile App, Admin	Real-time updates for spot availability
+Template Method	Ticket or exit processing	Fixed flow with variable steps
+Command (optional)	Parking actions (undo/schedule)	Encapsulate actions
+Builder (optional)	Creating complex objects like Ticket	Avoid telescoping constructors
+
+Singleton Pattern
+Used in: ParkingLot class Why: There should be only one instance of the ParkingLot managing the entire system.
+
+public class ParkingLot {
+    private static volatile ParkingLot instance;
+
+    private ParkingLot() {}
+
+    public static ParkingLot getInstance() {
+        if (instance == null) {
+            synchronized (ParkingLot.class) {
+                if (instance == null) {
+                    instance = new ParkingLot();
+                }
+            }
+        }
+        return instance;
+    }
+}
+
+Factory Pattern
+Used in:
+* Creating different types of ParkingSpot (Compact, Large, Handicapped, etc.)
+* Creating different types of vehicles (Car, Bike, Truck, etc.)
+Why: To encapsulate object creation logic and avoid tight coupling.
+
+public class ParkingSpotFactory {
+    public static ParkingSpot createSpot(SpotType type, String id) {
+        switch (type) {
+            case COMPACT: return new CompactSpot(id);
+            case LARGE: return new LargeSpot(id);
+            case BIKE: return new BikeSpot(id);
+            default: throw new IllegalArgumentException("Invalid spot type");
+        }
+    }
+}
+
+Strategy Pattern
+Used in: ParkingRate or BillingService
+Why: To support different billing strategies (e.g., hourly, per-minute, fixed + hourly, weekend/weekdays pricing).
+
+public interface BillingStrategy {
+    double calculate(LocalDateTime entry, LocalDateTime exit);
+}
+
+public class HourlyBillingStrategy implements BillingStrategy {
+    public double calculate(LocalDateTime entry, LocalDateTime exit) {
+        long hours = Duration.between(entry, exit).toHours();
+        return hours * 10; // ₹10 per hour
+    }
+}
+
+
+Observer Pattern
+Used in: DisplayBoard, AdminNotification, MobileApp Alert
+Why: Notify multiple components (e.g., dashboard, mobile app) when spot availability changes.
+
+interface Observer {
+    void update(String floorId, SpotType type, int availableCount);
+}
+
+class DisplayBoard implements Observer {
+    public void update(String floorId, SpotType type, int availableCount) {
+        System.out.println("Updated board for floor " + floorId);
+    }
+}
+
+Template Method Pattern
+Used in: Ticket generation or vehicle exit processing . Why: If the flow is fixed, but steps vary slightly for vehicle types.
+
+abstract class TicketProcessor {
+    public final void process() {
+        validateEntry();
+        assignSpot();
+        generateTicket();
+    }
+
+    protected abstract void assignSpot();
+}
+
+Command Pattern (Optional for extensibility)
+Used in: Undo parking actions or scheduling tasks (e.g., auto-release after timeout)
+Why: Decouple command initiation from execution.
+
+interface Command {
+    void execute();
+}
+
+class ParkCommand implements Command {
+    private Vehicle vehicle;
+
+    public ParkCommand(Vehicle vehicle) {
+        this.vehicle = vehicle;
+    }
+
+    public void execute() {
+        ParkingLot.getInstance().parkVehicle(vehicle);
+    }
+}
+
+Builder Pattern:
+
+class ParkingTicket {
+    private final String ticketId;
+    private final LocalDateTime entryTime;
+    private final Vehicle vehicle;
+
+    private ParkingTicket(Builder builder) {
+        this.ticketId = builder.ticketId;
+        this.entryTime = builder.entryTime;
+        this.vehicle = builder.vehicle;
+    }
+
+    public static class Builder {
+        private String ticketId;
+        private LocalDateTime entryTime;
+        private Vehicle vehicle;
+
+        public Builder ticketId(String id) { this.ticketId = id; return this; }
+        public Builder entryTime(LocalDateTime time) { this.entryTime = time; return this; }
+        public Builder vehicle(Vehicle v) { this.vehicle = v; return this; }
+        public ParkingTicket build() { return new ParkingTicket(this); }
+    }
+}
+
+Follow-up Functional Questions/ Non-functional questions
+
+Can this be turned into a SaaS for multiple locations?
+Can your design evolve to multi-tenancy?
+
+How to handle distributed environments (multi-gate entry)?
+Use of shared cache (Redis) and messaging (Kafka)
+
+How will you handle real-time availability at scale?
+Expectation:
+* Use Redis cache for fast availability checks.
+* Use event-driven updates on entry/exit (via Kafka or internal pub/sub).
+
+How will the system behave under concurrency?
+Expectation:
+* Use locks or synchronized blocks on parking spot assignments.
+* Use ConcurrentHashMap for active ticket tracking
+
+What if someone loses the ticket?
+Expectation: 
+* Allow lookup by license plate (if stored).
+* Enforce a fine for a lost ticket.
+
+API to get parking history using a license plate
+GET /api/history?licensePlate=XYZ
+
+How will you scale this for 100k+ vehicles/day?
+Expectation:
+* Separate services: Entry/Exit/Ticketing.
+* Use distributed databases and in-memory caches.
+* Partition floors into zones.
+
+What happens if the parking lot is full?
+Expectation: Return an appropriate message or exception (HTTP 409 Conflict) and maybe support a waitlist or reservation.
+
+How will you support different types of parking lots (mall, airport, street)?
+Expectation: Abstract core logic into interfaces, use Strategy Pattern to support different business rules (e.g., pricing, reservation, max duration).
+
+Can you support reservations in advance?
+Expectation: Add ReservationService, reservation_id, and allow spot blocking for a limited time
+
+
+

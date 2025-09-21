@@ -1,0 +1,226 @@
+Key-Value Store
+
+Functional Requirements
+* Store key-value pairs.
+* Support for basic operations:
+    * put(key, value)
+    * get(key)
+    * remove(key)
+* Optional:
+    * TTL (Time-To-Live) for expiring keys.
+    * Persistence (save/load to disk).
+    * Eviction policy (LRU, LFU) when memory is full.
+    * Multi-thread safety.
+
+
+Non-Functional Requirements
+* High performance (O(1) operations).
+* Thread-safe.
+* Scalable (optionally distributed in future).
+
+
+Core Entities & Classes:
+
+Main Map: Map<String, ValueWrapper>
+ValueWrapper contains:
+
+class ValueWrapper {
+    Object value;
+    long expiryTime; // -1 if no expiry
+}
+LRU Cache (LinkedHashMap or custom DoublyLinkedList+Map)
+TTL Check: PriorityQueue or DelayQueue (for expiry)
+
+Interfaces and Core API
+
+public interface KeyValueStore {
+    void put(String key, Object value);
+    void put(String key, Object value, long ttlInMillis);
+    Object get(String key);
+    void remove(String key);
+}
+
+
+Key Classes in Java
+
+EvictionPolicy Interface —> the key which we accessed & marking the map store
+
+public interface EvictionPolicy {
+    void evict(Map<String, ValueWrapper> store);
+    void keyAccessed(String key);
+}
+
+LRUEvictionPolicy (Example Strategy) —> 
+	How will we implement LRU?  —> keyAccessed: Current LRU key is removed & added a new key is added to put up in the recently used order
+								     —> Evict: Identify current leastRecentlyUsed key, remove from the usage order & also remove from the key store.
+
+public class LRUEvictionPolicy implements EvictionPolicy {
+    private final LinkedHashSet<String> usageOrder = new LinkedHashSet<>();
+
+    public void keyAccessed(String key) {
+        usageOrder.remove(key);
+        usageOrder.add(key);
+    }
+
+    public void evict(Map<String, ValueWrapper> store) {
+        String leastUsed = usageOrder.iterator().next();
+        usageOrder.remove(leastUsed);
+        store.remove(leastUsed);
+    }
+}
+
+InMemoryKeyValueStore (Main Class)
+
+public class InMemoryKeyValueStore implements KeyValueStore {
+    private final Map<String, ValueWrapper> store;
+    private final EvictionPolicy evictionPolicy;
+    private final TTLManager ttlManager; // optional
+
+    public InMemoryKeyValueStore(int capacity, EvictionPolicy policy) {
+        this.store = new ConcurrentHashMap<>();
+        this.evictionPolicy = policy;
+        this.ttlManager = new TTLManager(this.store);
+        this.ttlManager.start(); // runs in background
+    }
+
+    public void put(String key, Object value) {
+        put(key, value, -1); // no TTL
+    }
+
+    public void put(String key, Object value, long ttlInMillis) {
+        if (store.size() >= MAX_SIZE) {
+            evictionPolicy.evict(store);
+        }
+        long expiry = (ttlInMillis > 0) ? System.currentTimeMillis() + ttlInMillis : -1;
+        store.put(key, new ValueWrapper(value, expiry));
+        evictionPolicy.keyAccessed(key);
+        ttlManager.addKey(key, expiry);
+    }
+
+    public Object get(String key) {
+        ValueWrapper val = store.get(key);
+        if (val == null || (val.expiryTime > 0 && val.expiryTime < System.currentTimeMillis())) {
+            store.remove(key);
+            return null;
+        }
+        evictionPolicy.keyAccessed(key);
+        return val.value;
+    }
+
+    public void remove(String key) {
+        store.remove(key);
+    }
+}
+
+TTLManager (Thread for expiring keys) - Optional
+
+public class TTLManager extends Thread {
+    private final Map<String, ValueWrapper> store;
+
+    public TTLManager(Map<String, ValueWrapper> store) {
+        this.store = store;
+    }
+
+    public void run() {
+        while (true) {
+            long now = System.currentTimeMillis();
+            for (String key : store.keySet()) {
+                ValueWrapper val = store.get(key);
+                if (val.expiryTime > 0 && val.expiryTime <= now) {
+                    store.remove(key);
+                }
+            }
+            try { Thread.sleep(1000); } catch (InterruptedException e) {}
+        }
+    }
+
+    public void addKey(String key, long expiry) {
+        // optional: add to a priority queue for optimization
+    }
+}
+
+Can you explain how eviction works?
+Before inserting a new key, we check the store.size() >= MAX_SIZE.
+If true, we call evictionPolicy.evict(store), which decides which key(s) to evict based on policy (LRU, LFU, etc.).
+
+Optional Enhancements
+* ✅ Persistent key-value store using disk files or LevelDB
+* ✅ TTL using Java DelayQueue
+* ✅ Add bulk APIs: putAll, removeAll, multiGet
+* ✅ Shard the store for scalability (horizontal scaling)
+* ✅ Add support for transactions or versioning
+
+Counter / Follow-Up Questions. 
+
+Basic Design & Functionality
+
+➤ Q1: What happens if I put() a key that already exists?
+A: The existing key’s value is overwritten with the new value. 
+
+➤ Q2: How would you implement delete(key)?
+public void delete(String key) {
+    store.remove(key);
+}
+You can also notify the eviction policy (if needed), e.g., evictionPolicy.keyRemoved(key);
+
+➤ Q3: Can we store null as a value? Should we?
+It's not recommended. It introduces ambiguity:
+* Does null mean key is absent or value is null? Better: Disallow null values and throw an IllegalArgumentException.
+
+
+➤ Q4: How does TTL work in multi-threaded environments?
+
+Use thread-safe data structures like ConcurrentHashMap and schedule TTL expiration with a DelayQueue or ScheduledExecutorService to clean up expired entries.
+All TTL checks during get() or put() should be thread-safe.
+
+Eviction & Capacity
+
+➤ Q6: What eviction policies are supported? Can you implement LRU
+The store supports the Strategy pattern for pluggable eviction policies. LRU can be implemented using LinkedHashMap or a DoublyLinkedList + HashMap combo.
+
+➤ Q8: What if TTL expiry and eviction happen at the same time?
+Both must be synchronised. Ideally, TTL expired keys should be cleared first, then eviction kicks in only if the size exceeds the limit after that.
+
+➤ Q9: Can we change the eviction strategy at runtime?
+Yes. The design uses the Strategy pattern, so you can inject a new EvictionPolicy implementation at runtime:
+
+kvStore.setEvictionPolicy(new LFUEvictionPolicy());
+
+Thread Safety
+
+➤ Q10: Is your put()/get() thread-safe?
+Yes. We use ConcurrentHashMap to ensure atomic operations.
+However, compound operations (like check-then-act) should be synchronized or use compute() or putIfAbsent().
+
+➤ Q11: Can race conditions happen during TTL expiry?
+Yes, if a key expires while another thread tries to get() it.
+Solution: Use synchronized TTL expiry logic or atomics like AtomicLong inside ValueWrapper.
+
+Scalability & Persistence
+
+
+➤ Q12: How would you scale this beyond one machine?
+
+Use consistent hashing to partition keys across nodes. Each node manages a subset of the data. For writes/reads, client queries the correct node
+
+Q13: Will you use consistent hashing?
+A: Yes. It's ideal when nodes can be added or removed dynamically. Each node handles a shard of keys, reducing re-distribution during scaling.
+
+➤ Q14: How would you persist data?
+A: Use write-ahead logging (WAL). Each put() appends to a log file. In-memory store is rebuilt from this log on startup. For durability, flush log to disk on every write.
+
+➤ Q15: Can you implement replication?
+A: Yes. Each write is sent to a primary and replica(s). Use quorum-based consistency if strong consistency is needed.
+
+
+Advanced Functionalities
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,145 @@
+
+Notification Service
+Design a scalable Notification Service that can send notifications (Email, SMS, Push) to millions of users in real-time or batch mode.
+
+🎯 Functional Requirements (FR):
+Requirement	Example
+Send notifications via Email, SMS, Push	Send OTP, alerts, reminders
+Support bulk & scheduled messages	Marketing emails, batch alerts
+Retry on failure	SMS delivery fails → retry
+User preferences	User opts for Email only
+Status tracking	Delivered, Failed, Read
+
+🚫 Non-Functional Requirements (NFR):
+* Scalability: Handle millions of messages/hour
+* Reliability: Guaranteed delivery with retry
+* Latency: <1s for real-time notifications
+* Extensibility: Add channels (e.g., WhatsApp) easily
+* Durability: Don’t lose data (e.g., on restart)
+
+High-Level Design (HLD)
+
+[ Notification API ]
+        |
+        V
+[ Message Queue (Kafka/SQS) ]
+        |
+        V
+[ Dispatcher Workers ]
+        |
+        +------> Email Provider (SMTP, SES)
+        |
+        +------> SMS Provider (Twilio, Msg91)
+        |
+        +------> Push Notification Service (FCM, APNs)
+
+
+Supporting Services:
+* User Preference Service: What channels do users allow
+* Template Engine: Custom messages per user
+* Scheduler: Delayed or future sends
+* Retry Queue / DLQ: For failed deliveries
+* Tracking DB: Notification status, logs
+
+
+Low-Level Design (LLD)
+1. API Layer (Spring Boot / Node.js)
+http
+CopyEdit
+POST /notify
+{
+  "userId": "123",
+  "channel": "EMAIL",
+  "templateId": "OTP_TEMPLATE",
+  "data": {
+     "otp": "123456"
+  },
+  "scheduleAt": "2025-07-23T10:00:00Z"
+}
+
+
+Kafka Topics
+Topic Name	Purpose
+notification-request	New messages from API
+email-jobs	Email-specific processing queue
+sms-jobs	SMS processing
+push-jobs	Push messages
+retry-jobs	Retry handling
+
+Worker Services (Java microservices or Spring Boot)
+* Listen to the Kafka topic
+* Enrich with user preferences
+* Resolve template using data
+* Call third-party provider
+* Log status
+* Push to retry if failed
+
+@Service
+public class EmailWorker {
+  @KafkaListener(topics = "email-jobs")
+  public void process(EmailNotification notif) {
+    if (!userPrefService.isOptedIn(notif.getUserId(), "EMAIL")) return;
+
+    String content = templateService.render(notif.templateId, notif.data);
+    emailProvider.send(notif.to, content);
+  }
+}
+
+Database Schema (PostgreSQL / MongoDB)
+Notification Status Table
+ID	userId	channel	status	createdAt	updatedAt
+1	123	EMAIL	SENT	...	...
+Templates Table
+TemplateID	Channel	TemplateText
+OTP_TEMPLATE	EMAIL	Your OTP is {{otp}}
+
+Key Design Decisions:
+Problem	Solution
+Provider failures	Retry queue, exponential backoff
+Scale workers	Stateless services + horizontal scaling
+Message loss	Kafka with replication, DLQ
+Scheduling	Quartz scheduler, or push delayed jobs to Kafka
+Observability	Prometheus, Grafana, tracing with OpenTelemetry
+ 
+Retry Logic
+* Retry 3 times for temporary failures
+* Move to Dead Letter Queue (DLQ) after max attempts
+* Alert on DLQ growth
+
+
+Scale Handling
+Layer	Scaling Approach
+API	Load balancer + horizontal scaling
+Queue	Kafka partitions
+Workers	Auto-scaling consumer pods
+Storage	Shard databases by userId
+
+Tech Stack Suggestions
+Layer	Tools / Frameworks
+API	Spring Boot / Node.js
+Queue	Apache Kafka / AWS SQS
+Template Engine	FreeMarker / Mustache
+Workers	Spring Boot Microservices
+Storage	PostgreSQL / MongoDB / Redis
+Email	Amazon SES / SMTP / SendGrid
+SMS	Twilio / Msg91
+Push	Firebase Cloud Messaging (FCM)
+Monitoring	Prometheus + Grafana
+
+Counter Questions with Short Sample Answers
+Question	What They're Testing	Sample Thought Process / Answer
+1. How will you ensure delivery guarantees (at least once vs exactly once)?	Reliability, message semantics	Use Kafka (at-least-once), track delivery status, deduplicate on consumer using message ID.
+2. What happens if Kafka is down?	Fault-tolerance, durability	Use Kafka with replication. Buffer at API or retry layer temporarily. Optionally use Redis as short-term queue.
+3. How do you handle message duplication (e.g., email sent twice)?	Idempotency, data consistency	Store message ID + recipient in DB with unique key. Deduplicate before sending.
+4. How would you handle failed third-party provider calls (like Twilio down)?	Retry, failover	Retry with exponential backoff. Use secondary SMS provider fallback if primary fails.
+5. How to implement delayed or scheduled notifications?	Scheduler architecture	Store schedule time in DB, use Quartz or push delayed job into Kafka with delay queue mechanism.
+6. How do you throttle or rate-limit notifications?	Abuse prevention, control	Use token bucket algorithm or Redis-based limiter per user/provider.
+7. How to handle preference management at scale?	Personalization, user config	Cache user preferences (Redis). Sync periodically from DB.
+8. How do you prioritize notifications (urgent vs bulk)?	Queue architecture	Use Kafka topics with priority tags or separate queues; process urgent queue first.
+9. Can this system be extended to support WhatsApp, Slack, etc.?	Extensibility, OCP principle	Yes, abstract channel interface, plug new channels with minimal change.
+10. How do you scale the workers if one channel gets heavy load?	Resource allocation	Auto-scale workers by topic load (Kafka lag), or split microservices per channel.
+11. What if a user wants to unsubscribe from all notifications?	Preference enforcement	Block at API and dispatcher layer by checking opt-out status. Soft delete in preferences DB.
+12. How do you ensure ordering of notifications (e.g., OTP before welcome email)?	Ordering guarantees	Use Kafka partitions by user ID. Process FIFO at consumer end for that partition.
+13. How do you store templates with localization (multi-language)?	Internationalization	Store template keys per language. Fetch based on user locale.
+14. How do you trace a notification lifecycle (debugging)?	Observability	Attach trace ID. Use OpenTelemetry. Log all steps: received, queued, sent, status.
+15. How to ensure real-time delivery in <1 sec latency?	Performance tuning	Use async processing, keep templates in cache, use low-latency providers (e.g., FCM).

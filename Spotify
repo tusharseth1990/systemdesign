@@ -1,0 +1,90 @@
+Design Music Streaming Like Spotify:
+
+What are we building?
+A platform where users can:
+* Search and play songs, albums, and playlists
+* Get recommendations
+* Follow artists/friends
+* Have free (ads) & premium (no ads, offline) tiers
+* Stream globally with low latency
+
+High-Level Architecture:
+
+Control Plane (metadata + logic)
+* Handles user requests like searching songs, loading playlists, login, payments.
+* Services:
+    * Catalogue Service → songs, albums, artists’ info
+    * Playlist/Library Service → user’s playlists, likes
+    * Search Service → powered by Elasticsearch
+    * Recommendation Service → suggests songs
+    * User Service → login, subscription tier, preferences
+    * Playback Service → checks if user is allowed to play (premium/free, region, rights)
+
+
+Data Plane (actual music streaming)
+* Songs are stored in object storage (S3/GCS).
+* Transcoded to multiple bitrates (96, 160, 320 kbps).
+* Delivered via CDN using HLS/DASH format.
+* Protected with DRM (so downloads can’t be pirated).
+
+
+Data Model (simplified)
+* Users: id, name, subscription_type (free/premium), country
+* Artists: id, name, genres
+* Albums: id, artist_id, release_date
+* Tracks: id, album_id, duration, audio_url(s), available_regions
+* Playlists: id, owner_id, title, tracks[]
+* Likes/History: user_id, track_id
+
+
+Client  -> API Gateway    ->  Control Plane (All microservices)     ->  Object Storage ->   CDN    -> client (Plays chunk via HLS)
+
+How to explain this diagram in an interview:
+* Clients (mobile/web/desktop) talk to APIs for metadata (search, playlists, recommendations).
+* Control Plane = services that handle user data, playlists, recommendations, and entitlements.
+* Playback Orchestrator is the brain before streaming → checks subscription, geo, rights, then gives back a CDN manifest + DRM license.
+* Data Plane = music files. Songs live in object storage, broken into chunks, distributed globally via CDN.
+* Client plays chunks directly from CDN (fast, cheap).
+
+
+Reliability
+* Use multi-region deployment for APIs.
+* Caches (Redis) for hot data (playlists, recommendations).
+* If the recommendation service fails → fallback to popular playlists.
+* If CDN fails in a region → reroute to the backup provider.
+
+Scale Considerations
+* Catalogue: millions of tracks, mostly read-heavy.
+* Streaming: millions of concurrent users → must go via CDN to reduce latency/cost.
+* Search: autocomplete < 100 ms.
+* Global Rights: track may not be available everywhere → Playback Service enforces this.
+
+Playback Flow
+1. User clicks Play.
+2. App calls Playback Service → checks subscription, geo-restrictions, device rules.
+3. If okay → service returns a manifest (HLS/DASH URL) + DRM license.
+4. Client fetches small audio chunks from CDN.
+5. Heartbeats sent to backend (used for analytics + recommendations).
+
+
+Recommendations (basic approach)
+* Collect signals: plays, skips, likes, search queries.
+* Offline jobs (Spark) train models → collaborative filtering + content-based.
+* Online system ranks candidates and shows home feed (e.g., “Made for You”).
+
+
+How will you handle millions of users streaming at the same time?
+👉 Answer:
+* Use CDN for audio chunks (offload traffic from backend).
+* Ensure 95%+ cache hit rate at CDN.
+* Multi-bitrate streaming so each user adapts to the network.
+* Backend only controls metadata, not audio delivery.
+
+What about artists uploading content?
+👉 Answer:
+* Content Ingestion Service:
+    * Upload → transcode into multiple bitrates → DRM packaging → CDN.
+    * Metadata pushed into catalog + search index.
+* Rights management ensures royalties tracked.
+
+

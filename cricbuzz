@@ -1,0 +1,104 @@
+CricBuzz HLD
+
+FR:
+
+1. Live Score
+2. Players’ Stats / Matches Upcoming / Old Match Statistics
+3. Live Commentary / Ball by Ball
+
+NFR:
+
+1. Latency is low.
+2. High Availability
+
+
+
+Cricbuzz Data Feed  -> Data Ingestion Service  -> Kafka (score-updates, commentary, notifications, player stats)
+
+
+Kafka  -> Score Update Service  -> Redis + DB (Cassandra / ScalaDB + Postgres i.e. Relational metadata) -> Websocket / SSE & REST API -> CDN  ->  clients (Only to subscribers) 
+		
+
+Kafka  -> Search Service ->  Elastic Search  
+			    |		
+			Clients
+
+Kafka - > Analytics Service -> Spark 
+
+SSE for broadcast updates, WebSockets for interactivity
+
+
+Scaling at different Levels:
+
+1. Mention Geo CDNs for static assets.
+2. SSE/WebSocket fan-out with Redis pub/sub or Kafka consumers.
+3. Horizontal scaling of WebSocket servers.
+4. Use sharding by match_id (so each server handles only a subset of matches).
+
+
+**“For Cricbuzz, I would use SSE as the primary mechanism for live score and commentary updates. The reason is that SSE is lightweight, one-way, and scales well for broadcast scenarios where millions of users are only consuming data. It runs over plain HTTP, integrates easily with CDNs and load balancers, and has built-in auto-reconnect, which reduces client complexity.
+On the other hand, WebSockets provide full-duplex communication, which is essential when the client needs to push data back, such as in live chat, fantasy cricket, or interactive polls. But they come with more infra complexity — we’d need connection management, sticky sessions, and heartbeats.
+My recommendation is a hybrid approach: use SSE for high-volume broadcast updates, such as scores and commentary, and WebSockets for interactive features. This gives us the right balance of scalability, performance, and simplicity.”**
+
+How do we handle always updating commentary?
+
+Append-only events (most common):
+
+Each commentary line is treated as an event with a unique ID, typically tied to matchId + inning + over + ball. If a correction or enriched commentary arrives for the same ball, the event is sent again with the same ID but a higher version. The WebSocket/SSE service pushes this to clients, and the client UI replaces the old line with the new one. This way, we support both append-only commentary and in-place refresh without reloading the whole feed
+
+
+
+Teams ───< Players
+   │
+   └──< Matches >─── Teams
+              │
+              └──< Match_Squads >─── Players
+
+
+1. Relational DB (Postgres/MySQL) — Metadata
+
+Teams
+
+CREATE TABLE teams (
+    team_id SERIAL PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    short_name VARCHAR(10),
+    country VARCHAR(50)
+);
+
+Players
+
+CREATE TABLE players (
+    player_id SERIAL PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    role VARCHAR(50),           -- batsman, bowler, allrounder, keeper
+    batting_style VARCHAR(50),  -- RHB, LHB
+    bowling_style VARCHAR(50),  -- Right-arm fast, etc
+    team_id INT REFERENCES teams(team_id)
+);
+
+Matches
+
+CREATE TABLE matches (
+    match_id SERIAL PRIMARY KEY,
+    tournament VARCHAR(100),
+    format VARCHAR(20),        -- ODI, T20, Test
+    venue VARCHAR(100),
+    start_time TIMESTAMP,
+    team1_id INT REFERENCES teams(team_id),
+    team2_id INT REFERENCES teams(team_id),
+    status VARCHAR(20)         -- scheduled, live, completed
+);
+
+Squads (Players per Match)
+
+CREATE TABLE match_squads (
+    match_id INT REFERENCES matches(match_id),
+    player_id INT REFERENCES players(player_id),
+    is_playing BOOLEAN,
+    PRIMARY KEY (match_id, player_id)
+);
+
+
+
+ 
